@@ -25,9 +25,10 @@ from .deconv import CenternetDeconv
 
 class Head(nn.Module):
 
-    def __init__(self, cfg, backbone_shape=[2048, 1024, 512, 256]):
+    def __init__(self, cfg, backbone_shape=[2048, 1024, 512, 256], to_trt=False):
         super().__init__()
         
+        self.to_trt = to_trt  
         # Build heads.
         num_classes = cfg.MODEL.OneNet.NUM_CLASSES
         d_model = cfg.MODEL.OneNet.DECONV_CHANNEL[-1]
@@ -62,13 +63,16 @@ class Head(nn.Module):
     def forward(self, features_list):
         
         features = self.deconv(features_list)
-        locations = self.locations(features)[None]       
+        locations = self.locations(features)[None] # not friend to export onnx
 
         feat = self.activation(self.feat1(features))
     
         class_logits = self.cls_score(feat)
         pred_ltrb = F.relu(self.ltrb_pred(feat))
         pred_bboxes = self.apply_ltrb(locations, pred_ltrb)
+
+        if self.to_trt:
+            return features, class_logits, pred_ltrb 
 
         return class_logits, pred_bboxes
     

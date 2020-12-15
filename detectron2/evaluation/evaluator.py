@@ -154,7 +154,28 @@ def inference_on_dataset(model, data_loader, evaluator, processor):
             dynamic_axes=None
 
             start_compute_time = time.perf_counter()
-            outputs = model(image_tensor, image_whwh)
+            outputs = model(image_tensor)
+
+            
+            # export the onnx model
+            """
+            dynamic_axes = None
+            """
+            dynamic_axes = {'image': {0: 'batch', 2: 'height', 3 : 'width'}, 
+                            'features': {0: 'batch', 2 : 'height', 3: 'width'}, 
+                            'logits': {0: 'batch', 2 : 'height', 3: 'width'}, 
+                            'ltrb': {0: 'batch', 2 : 'height', 3 : 'width'} 
+                           }
+
+            torch.onnx.export(model, image_tensor, 
+                    'onenet.onnx', opset_version=11,
+                    input_names = ['image'], 
+                    #output_names = ['logits', 'boxes'], 
+                    output_names = ['features', 'logits', 'ltrb'], 
+                    dynamic_axes = dynamic_axes, 
+                    enable_onnx_checker=False)
+            print("Export to onnx !")
+            quit()
 
             outputs = processor.post_process(outputs, images_size, org_size)
 

@@ -14,6 +14,7 @@ def add_onenet_config(cfg):
     cfg.MODEL.OneNet = CN()
     cfg.MODEL.OneNet.NUM_CLASSES = 80
 
+    cfg.MODEL.OneNet.TO_TRT = False 
     # Head.
     cfg.MODEL.OneNet.IN_FEATURES = ["res2", "res3", "res4", "res5"]
     cfg.MODEL.OneNet.ACTIVATION = 'relu'

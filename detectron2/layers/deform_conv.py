@@ -185,6 +185,28 @@ class _DeformConv(Function):
 
 class _ModulatedDeformConv(Function):
     @staticmethod
+    def symbolic(g, input, offset, mask, weight, bias,
+                 stride, padding, dilation, groups, deformable_groups):
+        with_bias = 1
+        if bias is None:
+            bias = torch.zeros(1) 
+            with_bias = 0
+        return g.op("ModulatedDCN", input,
+                    offset, mask,
+                    weight, bias,
+                    namespace_s = "detectron2",
+                    name_s = "ModulatedDCN", # plugin name
+                    version_s = " ", # plugin version
+                    with_bias_i = with_bias, 
+                    stride_i = stride,
+                    padding_i = padding,
+                    dilation_i = dilation,
+                    groups_i = groups, 
+                    deformable_groups_i = deformable_groups
+                    )
+
+
+    @staticmethod
     def forward(
         ctx,
         input,

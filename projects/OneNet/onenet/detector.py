@@ -152,8 +152,9 @@ class OneNet(nn.Module):
         self.backbone = build_backbone(cfg)
         self.size_divisibility = self.backbone.size_divisibility
         
+        self.to_trt = cfg.MODEL.OneNet.TO_TRT 
         # Build Head.
-        self.head = Head(cfg=cfg, backbone_shape=self.backbone.output_shape())
+        self.head = Head(cfg=cfg, backbone_shape=self.backbone.output_shape(), to_trt=self.to_trt)
 
         # Loss parameters:
         class_weight = cfg.MODEL.OneNet.CLASS_WEIGHT
@@ -181,7 +182,7 @@ class OneNet(nn.Module):
         self.to(self.device)
 
 
-    def forward(self, image_tensor, images_whwh):
+    def forward(self, image_tensor):
         """
         Args:
             batched_inputs: a list, batched outputs of :class:`DatasetMapper` .
@@ -205,8 +206,11 @@ class OneNet(nn.Module):
             features.append(feature)
 
         # Cls & Reg Prediction.
-        outputs_class, outputs_coord = self.head(features)
+        outputs = self.head(features)
+        if self.to_trt:
+            return outputs 
         
+        outputs_class, outputs_coord  = outputs
         output = {'pred_logits': outputs_class, 'pred_boxes': outputs_coord}
 
         if self.training:

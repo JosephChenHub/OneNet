@@ -10,6 +10,7 @@ MODEL:
   OneNet:
     DCN: False
     NUM_CLASSES: 80
+    TO_TRT: True # 
 DATASETS:
   TRAIN: ("coco_2017_train",)
   TEST:  ("coco_2017_val",)
@@ -22,3 +23,11 @@ INPUT:
     ENABLED: True
   FORMAT: "RGB"
 OUTPUT_DIR: 'output_onenet_r50nodcn'
+
+PROCESSOR:
+  MODEL:
+    META_ARCHITECTURE: 'PrePostProcess'
+    DEVICE: 'cuda'
+    PIXEL_MEAN: [123.675, 116.280, 103.530]
+    PIXEL_STD: [58.395, 57.120, 57.375]
+    NUM_CLASSES: 80
