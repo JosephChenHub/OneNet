@@ -86,6 +86,21 @@ python demo/demo.py\
     --input path/to/images --output path/to/save_images --confidence-threshold 0.4 \
     --opts MODEL.WEIGHTS path/to/model.pth
 ```
+## Deploy (TensorRT) 
+1. export the onnx file (set the flag `TO_TRT: True` in `onenet.res50.dcn.yaml`):
+```
+python projects/OneNet/train_net.py --num-gpus 8 \
+    --config-file projects/OneNet/configs/onenet.res50.dcn.yaml \
+    --eval-only MODEL.WEIGHTS path/to/model.pth
+```
+the exported graph should contain one input node named `image`, and three outputs node `features`, `logits`, and `ltrb`. To export onnx model without dynamic shape, set `dynamic_axes = None` in the file `detectron2/evaluation/evaluator.py`. 
+
+2. use the tool [onnx-tensorrt](https://github.com/onnx/onnx-tensorrt) to convert the onnx into TensorRT engines with FP32/FP16/Int8 support. 
+   (note that users should modify the `onnx-tensorrt/main.cpp` manually in order to support Int8 mode, and the plugin of `ModulatedDCN` should be registered if dcn used!) 
+   
+3. implement the pre/post-processing operations using CUDA/C++ ([link]()). 
+
+4. do inference using TensorRT engines. See the [demo](). 
 
 ## License
 
