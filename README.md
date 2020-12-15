@@ -1,32 +1,45 @@
-## OneNet: End-to-End One-Stage Object Detection by Classification Cost
+## OneNet: Towards End-to-End One-Stage Object Detection
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ![](onenet.jpeg)
 
+Comparisons of different label assignment methods. H and W are height and width of feature map, respectively,
+K is number of object categories. Previous works on one-stage object detection assign labels by only position cost, such
+as (a) box IoU or (b) point distance between sample and ground-truth. In our method, however, (c) classification cost is
+additionally introduced. We discover that **classification cost is the key to the success of end-to-end**. Without classification
+cost, only location cost leads to redundant boxes of high confidence scores in inference, making NMS post-processing a
+necessary component.
+
 ## Introduction
-[OneNet: End-to-End One-Stage Object Detection by Classification Cost](https://peizesun.github.io/OneNet.pdf)
+[OneNet: Towards End-to-End One-Stage Object Detection](http://arxiv.org/abs/2012.05780)
+
+## Updates
+- (11/12/2020) Higher Performance for OneNet is reported by disable gradient clip.
 
 ## Comming
   - [ ] Provide models and logs
   - [ ] Support to caffe, onnx, tensorRT
-  - [ ] Support to Res18, MobileNet
+  - [ ] Support to MobileNet
   
 ## Models
 We provide two models 
-- R50_dcn is for high accuracy
-- R50_nodcn is for easy deployment.
+- dcn is for high accuracy
+- nodcn is for easy deployment.
 
 Method | inf_time | train_time | box AP | download
 --- |:---:|:---:|:---:|:---:
-[R50_dcn](projects/OneNet/configs/onenet.res50.dcn.yaml)     | 67 FPS | 36h  | 35.0 | 
-[R50_nodcn](projects/OneNet/configs/onenet.res50.nodcn.yaml) | 73 FPS | 29h  | 32.7 | 
+[R18_dcn](projects/OneNet/configs/onenet.res18.dcn.yaml)     | 109 FPS | 20h  | 29.5 | [model](https://drive.google.com/drive/folders/1LnHMj7pkJhODeZTNHW-UcUZxybKbQmTB)
+[R18_nodcn](projects/OneNet/configs/onenet.res18.nodcn.yaml) | 138 FPS | 13h  | 27.5 | [model](https://drive.google.com/drive/folders/1LnHMj7pkJhODeZTNHW-UcUZxybKbQmTB)
+[R50_dcn](projects/OneNet/configs/onenet.res50.dcn.yaml)     | 67 FPS  | 36h  | 35.7 | 
+[R50_nodcn](projects/OneNet/configs/onenet.res50.nodcn.yaml) | 73 FPS  | 29h  | 32.7 | 
 
+Models are available in [Baidu Drive](https://pan.baidu.com/s/1f0lQ63UEBD-qbHTrsD97hA) by code nhr8.
 
 #### Notes
 - We observe about 0.3 AP noise.
 - The training time and inference time are on 8 NVIDIA V100 GPUs.
-
+- We use the models pre-trained on imagenet using torchvision. And we provide [torchvision's ResNet-18.pkl](https://drive.google.com/drive/folders/1LnHMj7pkJhODeZTNHW-UcUZxybKbQmTB?usp=sharing) model. More details can be found in [the conversion script](tools/convert-torchvision-to-d2.py).
 
 ## Installation
 The codebases are built on top of [Detectron2](https://github.com/facebookresearch/detectron2) and [DETR](https://github.com/facebookresearch/detr).
@@ -86,9 +99,9 @@ If you use OneNet in your research or wish to refer to the baseline results publ
 ```BibTeX
 
 @article{peize2020onenet,
-  title   =  {{OneNet}: End-to-End One-Stage Object Detection},
-  author  =  {Peize Sun and Yi Jiang and Zehuan Yuan and Changhu Wang and Ping Luo},
-  journal =  {arXiv preprint arXiv: },
+  title   =  {{OneNet}: Towards End-to-End One-Stage Object Detection},
+  author  =  {Peize Sun and Yi Jiang and Enze Xie and Zehuan Yuan and Changhu Wang and Ping Luo},
+  journal =  {arXiv preprint arXiv: 2012.05780},
   year    =  {2020}
 }
 
