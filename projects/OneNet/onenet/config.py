@@ -38,3 +38,12 @@ def add_onenet_config(cfg):
     # Optimizer.
     cfg.SOLVER.OPTIMIZER = "ADAMW"
     cfg.SOLVER.BACKBONE_MULTIPLIER = 1.0
+
+    # 
+    cfg.PROCESSOR = CN()
+    cfg.PROCESSOR.MODEL = CN()
+    cfg.PROCESSOR.MODEL.META_ARCHITECTURE = "PrePostProcess"
+    cfg.PROCESSOR.MODEL.DEVICE = 'cuda'
+    cfg.PROCESSOR.MODEL.PIXEL_MEAN = [0, 0, 0]
+    cfg.PROCESSOR.MODEL.PIXEL_STD = [1, 1, 1]
+    cfg.PROCESSOR.MODEL.NUM_CLASSES = cfg.MODEL.OneNet.NUM_CLASSES

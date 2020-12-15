@@ -28,134 +28,59 @@ from .util.misc import (NestedTensor, nested_tensor_from_tensor_list,
                        accuracy, get_world_size, interpolate,
                        is_dist_avail_and_initialized)
 
-__all__ = ["OneNet"]
-
+__all__ = ["OneNet", "PrePostProcess"]
 
 @META_ARCH_REGISTRY.register()
-class OneNet(nn.Module):
-    """
-    Implement OneNet
-    """
-
+class PrePostProcess(object):
     def __init__(self, cfg):
-        super().__init__()
-
         self.device = torch.device(cfg.MODEL.DEVICE)
-        
-        self.nms = cfg.MODEL.OneNet.NMS
-        self.in_features = cfg.MODEL.OneNet.IN_FEATURES
-        self.num_classes = cfg.MODEL.OneNet.NUM_CLASSES
-        self.num_boxes = cfg.TEST.DETECTIONS_PER_IMAGE
-
-        # Build Backbone.
-        self.backbone = build_backbone(cfg)
-        self.size_divisibility = self.backbone.size_divisibility
-        
-        # Build Head.
-        self.head = Head(cfg=cfg, backbone_shape=self.backbone.output_shape())
-
-        # Loss parameters:
-        class_weight = cfg.MODEL.OneNet.CLASS_WEIGHT
-        giou_weight = cfg.MODEL.OneNet.GIOU_WEIGHT
-        l1_weight = cfg.MODEL.OneNet.L1_WEIGHT
-
-        # Build Criterion.
-        matcher = MinCostMatcher(cfg=cfg,
-                                   cost_class=class_weight, 
-                                   cost_bbox=l1_weight, 
-                                   cost_giou=giou_weight)
-        weight_dict = {"loss_ce": class_weight, "loss_bbox": l1_weight, "loss_giou": giou_weight}
-
-        losses = ["labels", "boxes"]
-
-        self.criterion = SetCriterion(cfg=cfg,
-                                      num_classes=self.num_classes,
-                                      matcher=matcher,
-                                      weight_dict=weight_dict,
-                                      losses=losses)
-
         pixel_mean = torch.Tensor(cfg.MODEL.PIXEL_MEAN).to(self.device).view(3, 1, 1)
         pixel_std = torch.Tensor(cfg.MODEL.PIXEL_STD).to(self.device).view(3, 1, 1)
         self.normalizer = lambda x: (x - pixel_mean) / pixel_std
-        self.to(self.device)
+        self.num_classes = cfg.MODEL.NUM_CLASSES
 
-
-    def forward(self, batched_inputs):
-        """
-        Args:
-            batched_inputs: a list, batched outputs of :class:`DatasetMapper` .
-                Each item in the list contains the inputs for one image.
-                For now, each item in the list is a dict that contains:
-
-                * image: Tensor, image in (C, H, W) format.
-                * instances: Instances
-
-                Other information that's included in the original dicts, such as:
-
-                * "height", "width" (int): the output resolution of the model, used in inference.
-                  See :meth:`postprocess` for details.
-        """
-        images, images_whwh = self.preprocess_image(batched_inputs)
+    @torch.no_grad()
+    def pre_process(self, inputs):
+        images, images_whwh = self.preprocess_image(inputs)
         if isinstance(images, (list, torch.Tensor)):
             images = nested_tensor_from_tensor_list(images)
 
-        # Feature Extraction.
-        src = self.backbone(images.tensor)
-        features = list()        
-        for f in self.in_features:
-            feature = src[f]
-            features.append(feature)
+        return images.tensor, images_whwh 
+	
+    @torch.no_grad()
+    def post_process(self, output, images_size, org_size):
+        box_cls = output["pred_logits"]
+        box_pred = output["pred_boxes"]
+        results = self.inference(box_cls, box_pred, images_size)
 
-        # Cls & Reg Prediction.
-        outputs_class, outputs_coord = self.head(features)
+        processed_results = []
+        for i, results_per_image in enumerate(results):
+            height, width = org_size[i, :] 
+            r = detector_postprocess(results_per_image, height, width)
+            processed_results.append({"instances": r})
         
-        output = {'pred_logits': outputs_class, 'pred_boxes': outputs_coord}
+        return processed_results
 
-        if self.training:
-            gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
-            targets = self.prepare_targets(gt_instances)
-            loss_dict = self.criterion(output, targets)
-            
-            weight_dict = self.criterion.weight_dict
-            for k in loss_dict.keys():
-                if k in weight_dict:
-                    loss_dict[k] *= weight_dict[k]
-            
-            return loss_dict
+    def preprocess_image(self, batched_inputs):
+        """
+        Normalize, pad and batch the input images.
+        """
+        images = [self.normalizer(x["image"].to(self.device)) for x in batched_inputs]
+        #images = ImageList.from_tensors(images, self.size_divisibility)
+        images = ImageList.from_tensors(images, 32)
 
-        else:
-            box_cls = output["pred_logits"]
-            box_pred = output["pred_boxes"]
-            results = self.inference(box_cls, box_pred, images.image_sizes)
+        images_whwh = list()
+        for bi in batched_inputs:
+            h, w = bi["image"].shape[-2:]
+            tmp = torch.tensor([w, h, w, h], dtype=torch.float32, device=self.device)
+            images_whwh.append(tmp)
+        images_whwh = torch.stack(images_whwh)
 
-            processed_results = []
-            for results_per_image, input_per_image, image_size in zip(results, batched_inputs, images.image_sizes):
-                height = input_per_image.get("height", image_size[0])
-                width = input_per_image.get("width", image_size[1])
-                r = detector_postprocess(results_per_image, height, width)
-                processed_results.append({"instances": r})
-            
-            return processed_results
+        return images, images_whwh
 
-    def prepare_targets(self, targets):
-        new_targets = []
-        for targets_per_image in targets:
-            target = {}
-            h, w = targets_per_image.image_size
-            image_size_xyxy = torch.as_tensor([w, h, w, h], dtype=torch.float, device=self.device)
-            gt_classes = targets_per_image.gt_classes
-            gt_boxes = targets_per_image.gt_boxes.tensor / image_size_xyxy
-            gt_boxes = box_xyxy_to_cxcywh(gt_boxes)
-            target["labels"] = gt_classes.to(self.device)
-            target["boxes"] = gt_boxes.to(self.device)
-            target["boxes_xyxy"] = targets_per_image.gt_boxes.tensor.to(self.device)
-            target["image_size_xyxy"] = image_size_xyxy.to(self.device)
-            image_size_xyxy_tgt = image_size_xyxy.unsqueeze(0).repeat(len(gt_boxes), 1)
-            target["image_size_xyxy_tgt"] = image_size_xyxy_tgt.to(self.device)
-            target["area"] = targets_per_image.gt_boxes.area().to(self.device)
-            new_targets.append(target)
-
-        return new_targets
+    def to(self, device):
+        print("Processor will ignore the passing device!")
+        pass
 
     def inference(self, _box_cls, _box_pred, image_sizes):
         """
@@ -207,19 +132,116 @@ class OneNet(nn.Module):
 
         return results
 
-    def preprocess_image(self, batched_inputs):
+@META_ARCH_REGISTRY.register()
+class OneNet(nn.Module):
+    """
+    Implement OneNet
+    """
+
+    def __init__(self, cfg):
+        super().__init__()
+
+        self.device = torch.device(cfg.MODEL.DEVICE)
+        
+        self.nms = cfg.MODEL.OneNet.NMS
+        self.in_features = cfg.MODEL.OneNet.IN_FEATURES
+        self.num_classes = cfg.MODEL.OneNet.NUM_CLASSES
+        self.num_boxes = cfg.TEST.DETECTIONS_PER_IMAGE
+
+        # Build Backbone.
+        self.backbone = build_backbone(cfg)
+        self.size_divisibility = self.backbone.size_divisibility
+        
+        # Build Head.
+        self.head = Head(cfg=cfg, backbone_shape=self.backbone.output_shape())
+
+        # Loss parameters:
+        class_weight = cfg.MODEL.OneNet.CLASS_WEIGHT
+        giou_weight = cfg.MODEL.OneNet.GIOU_WEIGHT
+        l1_weight = cfg.MODEL.OneNet.L1_WEIGHT
+
+        # Build Criterion.
+        matcher = MinCostMatcher(cfg=cfg,
+                                   cost_class=class_weight, 
+                                   cost_bbox=l1_weight, 
+                                   cost_giou=giou_weight)
+        weight_dict = {"loss_ce": class_weight, "loss_bbox": l1_weight, "loss_giou": giou_weight}
+
+        losses = ["labels", "boxes"]
+
+        self.criterion = SetCriterion(cfg=cfg,
+                                      num_classes=self.num_classes,
+                                      matcher=matcher,
+                                      weight_dict=weight_dict,
+                                      losses=losses)
+
+        pixel_mean = torch.Tensor(cfg.MODEL.PIXEL_MEAN).to(self.device).view(3, 1, 1)
+        pixel_std = torch.Tensor(cfg.MODEL.PIXEL_STD).to(self.device).view(3, 1, 1)
+        self.normalizer = lambda x: (x - pixel_mean) / pixel_std
+        self.to(self.device)
+
+
+    def forward(self, image_tensor, images_whwh):
         """
-        Normalize, pad and batch the input images.
+        Args:
+            batched_inputs: a list, batched outputs of :class:`DatasetMapper` .
+                Each item in the list contains the inputs for one image.
+                For now, each item in the list is a dict that contains:
+
+                * image: Tensor, image in (C, H, W) format.
+                * instances: Instances
+
+                Other information that's included in the original dicts, such as:
+
+                * "height", "width" (int): the output resolution of the model, used in inference.
+                  See :meth:`postprocess` for details.
         """
-        images = [self.normalizer(x["image"].to(self.device)) for x in batched_inputs]
 
-#         images = ImageList.from_tensors(images, self.size_divisibility)
-        images = ImageList.from_tensors(images, 32)
+        # Feature Extraction.
+        src = self.backbone(image_tensor)
+        features = list()        
+        for f in self.in_features:
+            feature = src[f]
+            features.append(feature)
 
-        images_whwh = list()
-        for bi in batched_inputs:
-            h, w = bi["image"].shape[-2:]
-            images_whwh.append(torch.tensor([w, h, w, h], dtype=torch.float32, device=self.device))
-        images_whwh = torch.stack(images_whwh)
+        # Cls & Reg Prediction.
+        outputs_class, outputs_coord = self.head(features)
+        
+        output = {'pred_logits': outputs_class, 'pred_boxes': outputs_coord}
 
-        return images, images_whwh
+        if self.training:
+            gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
+            targets = self.prepare_targets(gt_instances)
+            loss_dict = self.criterion(output, targets)
+            
+            weight_dict = self.criterion.weight_dict
+            for k in loss_dict.keys():
+                if k in weight_dict:
+                    loss_dict[k] *= weight_dict[k]
+            
+            return loss_dict
+
+        else:
+            return output 
+
+    def prepare_targets(self, targets):
+        new_targets = []
+        for targets_per_image in targets:
+            target = {}
+            h, w = targets_per_image.image_size
+            image_size_xyxy = torch.as_tensor([w, h, w, h], dtype=torch.float, device=self.device)
+            gt_classes = targets_per_image.gt_classes
+            gt_boxes = targets_per_image.gt_boxes.tensor / image_size_xyxy
+            gt_boxes = box_xyxy_to_cxcywh(gt_boxes)
+            target["labels"] = gt_classes.to(self.device)
+            target["boxes"] = gt_boxes.to(self.device)
+            target["boxes_xyxy"] = targets_per_image.gt_boxes.tensor.to(self.device)
+            target["image_size_xyxy"] = image_size_xyxy.to(self.device)
+            image_size_xyxy_tgt = image_size_xyxy.unsqueeze(0).repeat(len(gt_boxes), 1)
+            target["image_size_xyxy_tgt"] = image_size_xyxy_tgt.to(self.device)
+            target["area"] = targets_per_image.gt_boxes.area().to(self.device)
+            new_targets.append(target)
+
+        return new_targets
+
+

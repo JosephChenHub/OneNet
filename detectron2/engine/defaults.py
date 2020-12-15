@@ -521,6 +521,12 @@ Alternatively, you can call evaluation functions yourself (see Colab balloon tut
                 len(cfg.DATASETS.TEST), len(evaluators)
             )
 
+        processor = build_model(cfg.PROCESSOR) 
+        processor.size_divisibility = model.backbone.size_divisibility 
+        processor.num_boxes = model.num_boxes 
+        processor.nms = model.nms 
+    
+
         results = OrderedDict()
         for idx, dataset_name in enumerate(cfg.DATASETS.TEST):
             data_loader = cls.build_test_loader(cfg, dataset_name)
@@ -538,7 +544,7 @@ Alternatively, you can call evaluation functions yourself (see Colab balloon tut
                     )
                     results[dataset_name] = {}
                     continue
-            results_i = inference_on_dataset(model, data_loader, evaluator)
+            results_i = inference_on_dataset(model, data_loader, evaluator, processor)
             results[dataset_name] = results_i
             if comm.is_main_process():
                 assert isinstance(
